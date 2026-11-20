@@ -4,16 +4,12 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { CalendarIcon, Upload, X, Eye, EyeOff } from "lucide-react";
+import { CalendarIcon, Eye, EyeOff } from "lucide-react";
 import {
-    updatePassword,
-    EmailAuthProvider,
-    reauthenticateWithCredential,
-} from "firebase/auth";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { firestore as db, auth } from "@/lib/firebase";
-import { getCurrUserId } from "@/handlers/auth";
-import supabase from "@/lib/supabase";
+    changePassword,
+    getCurrUser,
+    updateCurrUserProfile,
+} from "@/handlers/auth";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,7 +34,6 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const profileSchema = z
@@ -47,7 +42,6 @@ const profileSchema = z
         date_of_birth: z.date({
             required_error: "Please select your date of birth.",
         }),
-        avatar: z.instanceof(File).optional(),
     })
     .refine(
         (data) => {
@@ -99,9 +93,7 @@ type PasswordForm = z.infer<typeof passwordSchema>;
 export default function ProfilePage() {
     const [loading, setLoading] = useState(false);
     const [passwordLoading, setPasswordLoading] = useState(false);
-    const [currentUserId, setCurrentUserId] = useState<string>("");
     const [userEmail, setUserEmail] = useState<string>("");
-    const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
     const [showCurrentPassword, setShowCurrentPassword] = useState(false);
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -111,7 +103,6 @@ export default function ProfilePage() {
         defaultValues: {
             full_name: "",
             date_of_birth: undefined,
-            avatar: undefined,
         },
     });
 
@@ -125,93 +116,19 @@ export default function ProfilePage() {
     });
 
     useEffect(() => {
-        async function loadUserData() {
-            try {
-                const userId = await getCurrUserId();
-                setCurrentUserId(userId);
-
-                const userDoc = await getDoc(doc(db, "users", userId));
-                if (userDoc.exists()) {
-                    const userData = userDoc.data();
-                    profileForm.setValue("full_name", userData.full_name || "");
-                    profileForm.setValue(
-                        "date_of_birth",
-                        userData.date_of_birth?.toDate() || new Date()
-                    );
-                    setUserEmail(userData.email || "");
-                    setAvatarPreview(userData.avatar || null);
-                }
-            } catch (error) {
-                toast.error(
-                    "Error loading profile data: " + (error as Error).message
-                );
-            }
-        }
-
-        loadUserData();
+        const user = getCurrUser();
+        if (!user) return;
+        profileForm.setValue("full_name", user.full_name);
+        profileForm.setValue("date_of_birth", new Date(user.date_of_birth));
+        setUserEmail(user.email);
     }, [profileForm]);
-
-    const handleAvatarChange = (file: File | null) => {
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                setAvatarPreview(e.target?.result as string);
-            };
-            reader.readAsDataURL(file);
-            profileForm.setValue("avatar", file);
-        } else {
-            setAvatarPreview(null);
-            profileForm.setValue("avatar", undefined);
-        }
-    };
-
-    const uploadAvatar = async (
-        file: File,
-        userId: string
-    ): Promise<string | null> => {
-        try {
-            const fileExt = file.name.split(".").pop();
-            const fileName = `${userId}-${Date.now()}.${fileExt}`;
-            const filePath = `avatars/${fileName}`;
-
-            const { error: uploadError } = await supabase.storage
-                .from("images")
-                .upload(filePath, file);
-
-            if (uploadError) {
-                throw uploadError;
-            }
-
-            const { data: urlData } = supabase.storage
-                .from("images")
-                .getPublicUrl(filePath);
-
-            return urlData.publicUrl;
-        } catch (error) {
-            console.error("Error uploading avatar:", error);
-            return null;
-        }
-    };
 
     const onProfileSubmit = async (values: ProfileForm) => {
         setLoading(true);
         try {
-            let avatarUrl = avatarPreview;
-
-            if (values.avatar) {
-                const newAvatarUrl = await uploadAvatar(
-                    values.avatar,
-                    currentUserId
-                );
-                if (newAvatarUrl) {
-                    avatarUrl = newAvatarUrl;
-                }
-            }
-
-            await updateDoc(doc(db, "users", currentUserId), {
+            await updateCurrUserProfile({
                 full_name: values.full_name,
-                date_of_birth: values.date_of_birth,
-                avatar: avatarUrl,
+                date_of_birth: values.date_of_birth.toISOString(),
             });
 
             toast.success("Profile updated successfully!");
@@ -225,29 +142,12 @@ export default function ProfilePage() {
     const onPasswordSubmit = async (values: PasswordForm) => {
         setPasswordLoading(true);
         try {
-            const user = auth.currentUser;
-            if (!user || !user.email) {
-                throw new Error("No authenticated user found");
-            }
-
-            const credential = EmailAuthProvider.credential(
-                user.email,
-                values.currentPassword
-            );
-            await reauthenticateWithCredential(user, credential);
-
-            await updatePassword(user, values.newPassword);
+            await changePassword(values.currentPassword, values.newPassword);
 
             passwordForm.reset();
             toast.success("Password updated successfully!");
-        } catch (error: any) {
-            if (error.code === "auth/wrong-password") {
-                toast.error("Current password is incorrect");
-            } else if (error.code === "auth/weak-password") {
-                toast.error("New password is too weak");
-            } else {
-                toast.error("Error updating password: " + error.message);
-            }
+        } catch (error) {
+            toast.error((error as Error).message);
         } finally {
             setPasswordLoading(false);
         }
@@ -277,8 +177,7 @@ export default function ProfilePage() {
                         <CardHeader>
                             <CardTitle>Profile Information</CardTitle>
                             <CardDescription>
-                                Update your personal information and profile
-                                picture
+                                Update your personal information
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -288,60 +187,6 @@ export default function ProfilePage() {
                                         onProfileSubmit
                                     )}
                                     className="space-y-6">
-                                    <FormField
-                                        control={profileForm.control}
-                                        name="avatar"
-                                        render={() => (
-                                            <FormItem className="flex flex-col items-center">
-                                                <FormLabel>
-                                                    Profile Picture
-                                                </FormLabel>
-                                                <div className="relative">
-                                                    <Avatar className="h-24 w-24">
-                                                        <AvatarImage
-                                                            src={
-                                                                avatarPreview ||
-                                                                "/placeholder.svg"
-                                                            }
-                                                        />
-                                                        <AvatarFallback>
-                                                            <Upload className="h-8 w-8 text-gray-400" />
-                                                        </AvatarFallback>
-                                                    </Avatar>
-                                                    {avatarPreview && (
-                                                        <Button
-                                                            type="button"
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
-                                                            onClick={() =>
-                                                                handleAvatarChange(
-                                                                    null
-                                                                )
-                                                            }>
-                                                            <X className="h-3 w-3" />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                                <FormControl>
-                                                    <Input
-                                                        type="file"
-                                                        accept="image/*"
-                                                        onChange={(e) => {
-                                                            const file =
-                                                                e.target
-                                                                    .files?.[0];
-                                                            handleAvatarChange(
-                                                                file || null
-                                                            );
-                                                        }}
-                                                        className="w-full max-w-xs"
-                                                    />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <FormField

@@ -1,199 +1,97 @@
-import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut as firebaseSignOut,
-} from "firebase/auth";
-import { auth, firestore } from "../lib/firebase";
-import { collection, doc, getDoc, setDoc } from "firebase/firestore";
-import supabase from "@/lib/supabase";
+import * as store from "@/lib/store";
+import type { Role, User } from "@/types/user";
+
+async function hashPassword(password: string): Promise<string> {
+    const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(password)
+    );
+    return Array.from(new Uint8Array(digest), (b) =>
+        b.toString(16).padStart(2, "0")
+    ).join("");
+}
+
+export function getCurrUser(): User | null {
+    const userId = store.getSessionUserId();
+    return userId ? store.get<User>("users", userId) : null;
+}
+
+export function onAuthChange(callback: (user: User | null) => void) {
+    callback(getCurrUser());
+    return store.subscribe(() => callback(getCurrUser()));
+}
 
 export async function getCurrUserId(): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const unsubscribe = auth.onAuthStateChanged((user) => {
-            unsubscribe();
-            if (user) {
-                resolve(user.uid);
-            } else {
-                resolve("");
-            }
-        }, reject);
-    });
+    return getCurrUser()?.id ?? "";
 }
 
 export async function getCurrUserName(): Promise<string> {
-    if (!auth.currentUser) return "Guest";
-
-    const role = await getCurrUserRole();
-
-    if (role === "guest") return "Guest";
-    else if (role === "user") {
-        const document = await getDoc(
-            doc(collection(firestore, "users"), auth.currentUser.uid)
-        );
-
-        const docSnap = document;
-        return docSnap.exists() ? docSnap.data().full_name || "User" : "User";
-    } else if (role === "expert") {
-        const document = await getDoc(
-            doc(collection(firestore, "experts"), auth.currentUser.uid)
-        );
-
-        const docSnap = document;
-        return docSnap.exists()
-            ? docSnap.data().full_name || "Expert"
-            : "Expert";
-    } else if (role === "admin") {
-        const document = await getDoc(
-            doc(collection(firestore, "admins"), auth.currentUser.uid)
-        );
-
-        const docSnap = document;
-        return docSnap.exists() ? docSnap.data().full_name || "Admin" : "Admin";
-    } else return "Guest";
+    return getCurrUser()?.full_name || "Guest";
 }
 
-async function checkFirestoreRole(user_id: string): Promise<string> {
-    const expert = await getDoc(doc(collection(firestore, "experts"), user_id));
-    if (expert.exists()) return "expert";
-
-    const admin = await getDoc(doc(collection(firestore, "admins"), user_id));
-    if (admin.exists()) return "admin";
-
-    const user = await getDoc(doc(collection(firestore, "users"), user_id));
-    if (user.exists()) return "user";
-
-    return "guest";
+export async function getCurrUserRole(): Promise<Role | "guest"> {
+    return getCurrUser()?.role ?? "guest";
 }
-
-export async function getCurrUserRole(): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const unsubscribe = auth.onAuthStateChanged(async (user) => {
-            unsubscribe();
-            if (user) {
-                resolve(checkFirestoreRole(user.uid));
-            } else {
-                resolve("guest");
-            }
-        }, reject);
-    });
-}
-
-const uploadAvatar = async (
-    file: File,
-    userId: string
-): Promise<string | null> => {
-    try {
-        const fileExt = file.name.split(".").pop();
-        const fileName = `${userId}-${Date.now()}.${fileExt}`;
-        const filePath = `${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from("avatars")
-            .upload(filePath, file);
-
-        if (uploadError) {
-            throw uploadError;
-        }
-
-        const { data: urlData } = supabase.storage
-            .from("avatars")
-            .getPublicUrl(filePath);
-
-        return urlData.publicUrl;
-    } catch (error) {
-        console.error("Error uploading avatar:", error);
-        return null;
-    }
-};
 
 export const registerAccount = async (
     email: string,
     password: string,
     displayName: string,
     dateOfBirth: Date,
-    isExpert: boolean,
-    avatar: File
+    isExpert: boolean
 ): Promise<void> => {
-    try {
-        const userCredential = await createUserWithEmailAndPassword(
-            auth,
-            email,
-            password
-        );
-
-        let avatarUrl = null;
-        if (avatar && userCredential.user) {
-            avatarUrl = await uploadAvatar(avatar, userCredential.user.uid);
-        }
-
-        await setDoc(
-            doc(
-                collection(firestore, isExpert ? "experts" : "users"),
-                userCredential.user.uid
-            ),
-            {
-                email: userCredential.user.email,
-                full_name: displayName,
-                date_of_birth: dateOfBirth,
-                avatar: avatarUrl,
-            }
-        );
-    } catch (error) {
-        if (error instanceof Error) {
-            throw new Error(error.message);
-        } else {
-            throw new Error("Unknown error occurred during registeration.");
-        }
+    const normalizedEmail = email.trim().toLowerCase();
+    if (store.list<User>("users").some((u) => u.email === normalizedEmail)) {
+        throw new Error("Email already in use.");
     }
+
+    store.insert<User>("users", {
+        email: normalizedEmail,
+        password_hash: await hashPassword(password),
+        full_name: displayName,
+        date_of_birth: dateOfBirth.toISOString(),
+        role: isExpert ? "expert" : "user",
+    });
 };
 
 export const signIn = async (
     email: string,
     password: string
 ): Promise<void> => {
-    try {
-        await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-        if (error instanceof Error) {
-            throw new Error(error.message);
-        } else {
-            throw new Error("Unknown error occurred during sign-in.");
-        }
-    }
+    const normalizedEmail = email.trim().toLowerCase();
+    const passwordHash = await hashPassword(password);
+    const user = store
+        .list<User>("users")
+        .find(
+            (u) =>
+                u.email === normalizedEmail && u.password_hash === passwordHash
+        );
+    if (!user) throw new Error("Invalid credentials. Please try again.");
+    store.setSessionUserId(user.id);
 };
 
 export const signOut = async (): Promise<void> => {
-    try {
-        await firebaseSignOut(auth);
-    } catch (error) {
-        if (error instanceof Error) {
-            throw new Error(error.message);
-        } else {
-            throw new Error("Unknown error occurred during sign-out.");
-        }
-    }
+    store.setSessionUserId("");
 };
 
-export function validatePassword(password: string): string {
-    if (password.length < 8) {
-        return "Password length must be at least 8 characters.";
-    }
+export async function updateCurrUserProfile(
+    patch: Pick<User, "full_name" | "date_of_birth">
+) {
+    const user = getCurrUser();
+    if (!user) throw new Error("No authenticated user found");
+    store.update<User>("users", user.id, patch);
+}
 
-    if (!/[A-Z]/.test(password)) {
-        return "Password must contain at least one uppercase letter.";
+export async function changePassword(
+    currentPassword: string,
+    newPassword: string
+) {
+    const user = getCurrUser();
+    if (!user) throw new Error("No authenticated user found");
+    if (user.password_hash !== (await hashPassword(currentPassword))) {
+        throw new Error("Current password is incorrect");
     }
-
-    if (!/[a-z]/.test(password)) {
-        return "Password must contain at least one lowercase letter.";
-    }
-
-    if (!/\d/.test(password)) {
-        return "Password must contain at least one number.";
-    }
-
-    if (!/[!@#$-%^&*(),.?":{}|<>]/.test(password)) {
-        return "Password must contain at least one special character.";
-    }
-
-    return "";
+    store.update<User>("users", user.id, {
+        password_hash: await hashPassword(newPassword),
+    });
 }

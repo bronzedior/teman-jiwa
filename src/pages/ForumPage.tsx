@@ -40,6 +40,7 @@ import {
 } from "@/handlers/forum";
 import type { Forum } from "@/types/forum";
 import { toast } from "sonner";
+import type { User } from "@/types/user";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -58,10 +59,6 @@ const createPostSchema = z.object({
         .string()
         .min(1, "Content is required")
         .max(5000, "Content too long"),
-    images: z
-        .array(z.instanceof(File))
-        .max(5, "Maximum 5 images allowed")
-        .optional(),
 });
 
 type CreatePostForm = z.infer<typeof createPostSchema>;
@@ -71,11 +68,11 @@ export default function ForumPage() {
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
-    const [lastDoc, setLastDoc] = useState<any>(null);
+    const [nextOffset, setNextOffset] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
     const [userRole, setUserRole] = useState<string>("");
     const [currentUserId, setCurrentUserId] = useState<string>("");
-    const [usersData, setUsersData] = useState<Record<string, any>>({});
+    const [usersData, setUsersData] = useState<Record<string, User>>({});
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
     const [creating, setCreating] = useState(false);
     const navigate = useNavigate();
@@ -85,11 +82,12 @@ export default function ForumPage() {
         defaultValues: {
             title: "",
             content: "",
-            images: [],
         },
     });
 
     useEffect(() => {
+        let unsubscribe: (() => void) | undefined;
+
         async function initializeData() {
             try {
                 const [role, userId] = await Promise.all([
@@ -101,7 +99,7 @@ export default function ForumPage() {
 
                 const result = await getForumPosts(10);
                 setPosts(result.posts);
-                setLastDoc(result.lastDoc);
+                setNextOffset(result.nextOffset);
                 setHasMore(result.hasMore);
 
                 const userIds = [
@@ -112,7 +110,7 @@ export default function ForumPage() {
 
                 setLoading(false);
 
-                const unsubscribe = subscribeToForumPosts((newPosts) => {
+                unsubscribe = subscribeToForumPosts((newPosts) => {
                     setPosts((prevPosts) => {
                         const existingIds = new Set(prevPosts.map((p) => p.id));
                         const uniqueNewPosts = newPosts.filter(
@@ -137,7 +135,6 @@ export default function ForumPage() {
                     });
                 });
 
-                return unsubscribe;
             } catch (error) {
                 toast.error("Error loading forum: " + (error as Error).message);
                 setLoading(false);
@@ -145,6 +142,7 @@ export default function ForumPage() {
         }
 
         initializeData();
+        return () => unsubscribe?.();
     }, []);
 
     const loadMorePosts = useCallback(async () => {
@@ -152,9 +150,9 @@ export default function ForumPage() {
 
         setLoadingMore(true);
         try {
-            const result = await getForumPosts(10, lastDoc);
+            const result = await getForumPosts(10, nextOffset);
             setPosts((prev) => [...prev, ...result.posts]);
-            setLastDoc(result.lastDoc);
+            setNextOffset(result.nextOffset);
             setHasMore(result.hasMore);
 
             const userIds = [
@@ -169,7 +167,7 @@ export default function ForumPage() {
         } finally {
             setLoadingMore(false);
         }
-    }, [hasMore, loadingMore, lastDoc]);
+    }, [hasMore, loadingMore, nextOffset]);
 
     const handleCreatePost = async (data: CreatePostForm) => {
         if (!currentUserId) {
@@ -183,7 +181,6 @@ export default function ForumPage() {
                 title: data.title,
                 content: data.content,
                 user_id: currentUserId,
-                images: data.images,
             });
 
             form.reset();
@@ -228,9 +225,9 @@ export default function ForumPage() {
             post.content.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const formatTimeAgo = (timestamp: any) => {
+    const formatTimeAgo = (timestamp: string) => {
         const now = new Date();
-        const postTime = timestamp.toDate();
+        const postTime = new Date(timestamp);
         const diffInMinutes = Math.floor(
             (now.getTime() - postTime.getTime()) / (1000 * 60)
         );
@@ -328,133 +325,6 @@ export default function ForumPage() {
                                             )}
                                         />
 
-                                        <FormField
-                                            control={form.control}
-                                            name="images"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>
-                                                        Images (Optional - Max
-                                                        5)
-                                                    </FormLabel>
-                                                    <FormControl>
-                                                        <div className="space-y-3">
-                                                            <Input
-                                                                type="file"
-                                                                multiple
-                                                                accept="image/*"
-                                                                onChange={(
-                                                                    e
-                                                                ) => {
-                                                                    const files =
-                                                                        Array.from(
-                                                                            e
-                                                                                .target
-                                                                                .files ||
-                                                                                []
-                                                                        );
-                                                                    const currentImages =
-                                                                        field.value ||
-                                                                        [];
-                                                                    const newImages =
-                                                                        [
-                                                                            ...currentImages,
-                                                                            ...files,
-                                                                        ].slice(
-                                                                            0,
-                                                                            5
-                                                                        );
-                                                                    field.onChange(
-                                                                        newImages
-                                                                    );
-                                                                }}
-                                                            />
-
-                                                            {field.value &&
-                                                                field.value
-                                                                    .length >
-                                                                    0 && (
-                                                                    <div className="flex gap-x-5">
-                                                                        {field.value.map(
-                                                                            (
-                                                                                file: File,
-                                                                                index: number
-                                                                            ) => (
-                                                                                <div
-                                                                                    key={
-                                                                                        index
-                                                                                    }
-                                                                                    className="relative group">
-                                                                                    <img
-                                                                                        src={
-                                                                                            URL.createObjectURL(
-                                                                                                file
-                                                                                            ) ||
-                                                                                            "/placeholder.svg"
-                                                                                        }
-                                                                                        alt={`Preview ${
-                                                                                            index +
-                                                                                            1
-                                                                                        }`}
-                                                                                        className="max-w-50 max-h-24 object-cover rounded-md border"
-                                                                                    />
-                                                                                    <Button
-                                                                                        type="button"
-                                                                                        variant="destructive"
-                                                                                        size="sm"
-                                                                                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                                                        onClick={() => {
-                                                                                            const newImages =
-                                                                                                (
-                                                                                                    field.value ??
-                                                                                                    []
-                                                                                                ).filter(
-                                                                                                    (
-                                                                                                        _: File,
-                                                                                                        i: number
-                                                                                                    ) =>
-                                                                                                        i !==
-                                                                                                        index
-                                                                                                );
-                                                                                            field.onChange(
-                                                                                                newImages
-                                                                                            );
-                                                                                        }}>
-                                                                                        ×
-                                                                                    </Button>
-                                                                                    <div className="absolute bottom-1 left-1 bg-black bg-opacity-50 text-white text-xs px-1 rounded">
-                                                                                        {file
-                                                                                            .name
-                                                                                            .length >
-                                                                                        15
-                                                                                            ? `${file.name.substring(
-                                                                                                  0,
-                                                                                                  15
-                                                                                              )}...`
-                                                                                            : file.name}
-                                                                                    </div>
-                                                                                </div>
-                                                                            )
-                                                                        )}
-                                                                    </div>
-                                                                )}
-
-                                                            {field.value &&
-                                                                field.value
-                                                                    .length >=
-                                                                    5 && (
-                                                                    <p className="text-sm text-amber-600">
-                                                                        Maximum
-                                                                        5 images
-                                                                        allowed
-                                                                    </p>
-                                                                )}
-                                                        </div>
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
 
                                         <Button
                                             type="submit"

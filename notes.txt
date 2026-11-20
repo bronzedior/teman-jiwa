@@ -1,3 +1,0 @@
-Apabila error @/components/ui/textarea maka jalankan perintah ini di terminal
-
-npx shadcn@latest add textarea

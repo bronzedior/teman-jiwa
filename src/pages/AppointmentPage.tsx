@@ -1,19 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-    collection,
-    getDocs,
-    query,
-    where,
-    onSnapshot,
-    doc,
-    updateDoc,
-    Timestamp,
-    addDoc,
-} from "firebase/firestore";
-import { firestore as db } from "@/lib/firebase";
+import * as store from "@/lib/store";
 import { getCurrUserRole, getCurrUserId } from "@/handlers/auth";
 import { Search, Clock, User, Calendar, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { Appointment } from "@/types/appointment";
+import type { User as UserProfile } from "@/types/user";
 import { toast } from "sonner";
 
 interface Expert {
@@ -59,7 +48,6 @@ export default function AppointmentPage() {
     const [selectedTime, setSelectedTime] = useState<string>("");
     const [expertSearch, setExpertSearch] = useState<string>("");
     const [creating, setCreating] = useState(false);
-    const navigate = useNavigate();
 
     const timeSlots = [
         "09:00",
@@ -74,6 +62,8 @@ export default function AppointmentPage() {
     ];
 
     useEffect(() => {
+        let unsubscribe: (() => void) | undefined;
+
         async function initializeData() {
             try {
                 const [role, userId] = await Promise.all([
@@ -83,39 +73,22 @@ export default function AppointmentPage() {
                 setUserRole(role);
                 setCurrentUserId(userId);
 
-                const expertsSnapshot = await getDocs(
-                    collection(db, "experts")
-                );
-                const expertsData: Expert[] = [];
-                expertsSnapshot.forEach((doc) => {
-                    expertsData.push({ id: doc.id, ...doc.data() } as Expert);
-                });
-                setExperts(expertsData);
-
-                const [usersSnapshot, expertsNamesSnapshot] = await Promise.all(
-                    [
-                        getDocs(collection(db, "users")),
-                        getDocs(collection(db, "experts")),
-                    ]
-                );
-
+                const profiles = store.list<UserProfile>("users");
                 const userNamesMap: Record<string, string> = {};
                 const expertNamesMap: Record<string, string> = {};
+                for (const profile of profiles) {
+                    if (profile.role === "expert") {
+                        expertNamesMap[profile.id] = profile.full_name;
+                    } else {
+                        userNamesMap[profile.id] = profile.full_name;
+                    }
+                }
 
-                usersSnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    userNamesMap[doc.id] = data.full_name || "Unknown User";
-                });
-
-                expertsNamesSnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    expertNamesMap[doc.id] = data.full_name || "Unknown Expert";
-                });
-
+                setExperts(profiles.filter((p) => p.role === "expert"));
                 setUserNames(userNamesMap);
                 setExpertNames(expertNamesMap);
 
-                setupAppointmentListener(role, userId);
+                unsubscribe = setupAppointmentListener(role, userId);
             } catch (error) {
                 toast.error(
                     "Error loading appointments: " + (error as Error).message
@@ -125,42 +98,27 @@ export default function AppointmentPage() {
         }
 
         initializeData();
+        return () => unsubscribe?.();
     }, []);
 
     const setupAppointmentListener = (role: string, userId: string) => {
-        let appointmentQuery;
-
-        if (role === "admin") {
-            appointmentQuery = collection(db, "appointments");
-        } else if (role === "expert") {
-            appointmentQuery = query(
-                collection(db, "appointments"),
-                where("expert_id", "==", userId)
-            );
-        } else {
-            appointmentQuery = query(
-                collection(db, "appointments"),
-                where("user_id", "==", userId)
-            );
-        }
-
-        const unsubscribe = onSnapshot(appointmentQuery, (snapshot) => {
-            const appointmentData: Appointment[] = [];
-            snapshot.forEach((doc) => {
-                appointmentData.push({
-                    id: doc.id,
-                    ...doc.data(),
-                } as Appointment);
-            });
-
-            appointmentData.sort(
-                (a, b) => b.start_time.toMillis() - a.start_time.toMillis()
-            );
+        const load = () => {
+            const appointmentData = store
+                .list<Appointment>("appointments")
+                .filter(
+                    (a) =>
+                        role === "admin" ||
+                        (role === "expert"
+                            ? a.expert_id === userId
+                            : a.user_id === userId)
+                )
+                .sort((a, b) => b.start_time.localeCompare(a.start_time));
             setAppointments(appointmentData);
             setLoading(false);
-        });
+        };
 
-        return unsubscribe;
+        load();
+        return store.subscribe(load);
     };
 
     const getStatusColor = (status: string) => {
@@ -180,7 +138,7 @@ export default function AppointmentPage() {
 
     const handleAcceptAppointment = async (appointmentId: string) => {
         try {
-            await updateDoc(doc(db, "appointments", appointmentId), {
+            store.update<Appointment>("appointments", appointmentId, {
                 status: "Accepted",
             });
         } catch (error) {
@@ -192,7 +150,7 @@ export default function AppointmentPage() {
 
     const handleDeclineAppointment = async (appointmentId: string) => {
         try {
-            await updateDoc(doc(db, "appointments", appointmentId), {
+            store.update<Appointment>("appointments", appointmentId, {
                 status: "Canceled by Expert",
             });
         } catch (error) {
@@ -204,7 +162,7 @@ export default function AppointmentPage() {
 
     const handleCancelAppointment = async (appointmentId: string) => {
         try {
-            await updateDoc(doc(db, "appointments", appointmentId), {
+            store.update<Appointment>("appointments", appointmentId, {
                 status: "Canceled by User",
             });
         } catch (error) {
@@ -216,10 +174,9 @@ export default function AppointmentPage() {
 
     const handleStartAppointment = async (appointmentId: string) => {
         try {
-            await updateDoc(doc(db, "appointments", appointmentId), {
+            store.update<Appointment>("appointments", appointmentId, {
                 status: "Ongoing",
             });
-            navigate(`/appointment/${appointmentId}`);
         } catch (error) {
             toast.error(
                 "Error starting appointment: " + (error as Error).message
@@ -227,8 +184,17 @@ export default function AppointmentPage() {
         }
     };
 
-    const handleChatWithExpert = (appointmentId: string) => {
-        navigate(`/appointment/${appointmentId}`);
+    const handleCompleteAppointment = async (appointmentId: string) => {
+        try {
+            store.update<Appointment>("appointments", appointmentId, {
+                status: "Completed",
+                finished_time: new Date().toISOString(),
+            });
+        } catch (error) {
+            toast.error(
+                "Error completing appointment: " + (error as Error).message
+            );
+        }
     };
 
     const checkExpertAvailability = async (
@@ -241,16 +207,15 @@ export default function AppointmentPage() {
         const endOfHour = new Date(startOfHour);
         endOfHour.setHours(endOfHour.getHours() + 1);
 
-        const conflictingAppointments = query(
-            collection(db, "appointments"),
-            where("expert_id", "==", expertId),
-            where("start_time", ">=", Timestamp.fromDate(startOfHour)),
-            where("start_time", "<", Timestamp.fromDate(endOfHour)),
-            where("status", "in", ["Pending", "Ongoing"])
-        );
-
-        const snapshot = await getDocs(conflictingAppointments);
-        return snapshot.empty;
+        return !store
+            .list<Appointment>("appointments")
+            .some(
+                (a) =>
+                    a.expert_id === expertId &&
+                    ["Pending", "Ongoing"].includes(a.status) &&
+                    new Date(a.start_time) >= startOfHour &&
+                    new Date(a.start_time) < endOfHour
+            );
     };
 
     const handleCreateAppointment = async () => {
@@ -275,15 +240,13 @@ export default function AppointmentPage() {
                 return;
             }
 
-            const appointmentData = {
+            store.insert<Appointment>("appointments", {
                 expert_id: selectedExpert,
                 user_id: currentUserId,
                 status: "Pending",
-                start_time: Timestamp.fromDate(appointmentDate),
+                start_time: appointmentDate.toISOString(),
                 finished_time: null,
-            };
-
-            await addDoc(collection(db, "appointments"), appointmentData);
+            });
 
             setSelectedExpert("");
             setSelectedDate("");
@@ -476,7 +439,7 @@ export default function AppointmentPage() {
                         </CardContent>
                     </Card>
                 ) : (
-                    filteredAppointments.map((appointment, _) => (
+                    filteredAppointments.map((appointment) => (
                         <Card key={appointment.id} className="bg-white">
                             <CardContent className="p-6">
                                 <div className="flex justify-between items-start">
@@ -519,8 +482,7 @@ export default function AppointmentPage() {
                                                     Date & Time:
                                                 </span>
                                                 <span>
-                                                    {appointment.start_time
-                                                        .toDate()
+                                                    {new Date(appointment.start_time)
                                                         .toLocaleDateString(
                                                             "id-ID",
                                                             {
@@ -529,8 +491,7 @@ export default function AppointmentPage() {
                                                                 year: "numeric",
                                                             }
                                                         )}{" "}
-                                                    {appointment.start_time
-                                                        .toDate()
+                                                    {new Date(appointment.start_time)
                                                         .toLocaleTimeString(
                                                             "id-ID",
                                                             {
@@ -604,7 +565,7 @@ export default function AppointmentPage() {
                                                             )
                                                         }
                                                         className="bg-green-600 hover:bg-green-700">
-                                                        START & OPEN CHAT
+                                                        START
                                                     </Button>
                                                 </>
                                             )}
@@ -621,30 +582,19 @@ export default function AppointmentPage() {
                                                     CANCEL
                                                 </Button>
                                             )}
-                                        {userRole === "user" &&
+                                        {userRole === "expert" &&
                                             appointment.status ===
                                                 "Ongoing" && (
                                                 <Button
                                                     onClick={() =>
-                                                        handleChatWithExpert(
+                                                        handleCompleteAppointment(
                                                             appointment.id
                                                         )
                                                     }
                                                     className="bg-green-600 hover:bg-green-700">
-                                                    CHAT WITH EXPERT
+                                                    COMPLETE
                                                 </Button>
                                             )}
-                                        {appointment.status === "Completed" && (
-                                            <Button
-                                                className="bg-green-600 hover:bg-green-700"
-                                                onClick={() =>
-                                                    navigate(
-                                                        `/appointment/${appointment.id}`
-                                                    )
-                                                }>
-                                                OPEN CHAT HISTORY
-                                            </Button>
-                                        )}
                                     </div>
                                 </div>
                             </CardContent>

@@ -39,12 +39,8 @@ export default function LoginPage() {
             await signIn(email, password);
             toast.success("Logged in successfully!");
             navigate("/");
-        } catch (error: any) {
-            if (
-                error.message === "Firebase: Error (auth/invalid-credential)."
-            ) {
-                toast.error("Invalid Credentials. Please try again.");
-            }
+        } catch (error) {
+            toast.error((error as Error).message);
         } finally {
             setLoading(false);
         }

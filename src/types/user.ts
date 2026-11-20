@@ -1,12 +1,12 @@
-export interface User {
-    uid: string;
-    email: string | null;
-    displayName: string | null;
-    photoURL: string | null;
-}
+export type Role = "user" | "expert" | "admin";
 
-export interface AuthState {
-    user: User | null;
-    loading: boolean;
-    error: string | null;
+export interface User {
+    id: string;
+    email: string;
+    password_hash: string;
+    full_name: string;
+    date_of_birth: string;
+    role: Role;
+    avatar?: string;
+    specialization?: string;
 }

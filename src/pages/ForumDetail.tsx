@@ -35,6 +35,7 @@ import {
 } from "@/handlers/forum";
 import type { Forum, Comment } from "@/types/forum";
 import { toast } from "sonner";
+import type { User } from "@/types/user";
 import { Lens } from "@/components/magicui/lens";
 
 export default function ForumDetailPage() {
@@ -44,7 +45,7 @@ export default function ForumDetailPage() {
     const [loading, setLoading] = useState(true);
     const [userRole, setUserRole] = useState<string>("");
     const [currentUserId, setCurrentUserId] = useState<string>("");
-    const [usersData, setUsersData] = useState<Record<string, any>>({});
+    const [usersData, setUsersData] = useState<Record<string, User>>({});
     const [newComment, setNewComment] = useState("");
     const [replyingTo, setReplyingTo] = useState<string | null>(null);
     const [replyContent, setReplyContent] = useState("");
@@ -58,6 +59,8 @@ export default function ForumDetailPage() {
     useEffect(() => {
         if (!id) return;
 
+        let unsubscribe: (() => void) | undefined;
+
         async function initializeData() {
             try {
                 const [role, userId] = await Promise.all([
@@ -67,7 +70,7 @@ export default function ForumDetailPage() {
                 setUserRole(role);
                 setCurrentUserId(userId);
 
-                const unsubscribe = subscribeToForumPost(
+                unsubscribe = subscribeToForumPost(
                     id ?? "",
                     async (postData) => {
                         if (postData) {
@@ -96,7 +99,6 @@ export default function ForumDetailPage() {
                     }
                 );
 
-                return unsubscribe;
             } catch (error) {
                 toast.error("Error loading post: " + (error as Error).message);
                 setLoading(false);
@@ -104,6 +106,7 @@ export default function ForumDetailPage() {
         }
 
         initializeData();
+        return () => unsubscribe?.();
     }, [id, navigate]);
 
     const handleLike = async () => {
@@ -216,9 +219,9 @@ export default function ForumDetailPage() {
         });
     };
 
-    const formatTimeAgo = (timestamp: any) => {
+    const formatTimeAgo = (timestamp: string) => {
         const now = new Date();
-        const commentTime = timestamp.toDate();
+        const commentTime = new Date(timestamp);
         const diffInMinutes = Math.floor(
             (now.getTime() - commentTime.getTime()) / (1000 * 60)
         );
