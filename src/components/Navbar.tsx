@@ -3,49 +3,36 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { auth } from "@/lib/firebase";
 import { toast } from "sonner";
-import { getCurrUserName } from "@/handlers/auth";
+import { onAuthChange, signOut } from "@/handlers/auth";
+import type { User } from "@/types/user";
 import { HyperText } from "@/components/magicui/hyper-text";
 
 const navItems = [
     { name: "HOME", href: "/" },
-    { name: "MODULES", href: "/modules" },
     { name: "APPOINTMENTS", href: "/appointments" },
     { name: "FORUM", href: "/forum" },
     { name: "FAQ", href: "/faq" },
-    { name: "CONTACT", href: "/contact" },
     { name: "PROFILE", href: "/profile" },
 ];
 
 export function Navbar() {
     const [isOpen, setIsOpen] = useState(false);
     const [user, setUser] = useState<User | null>(null);
-    const [userName, setUserName] = useState<string>("Guest");
+    const userName = user?.full_name || "Guest";
 
-    useEffect(() => {
-        async function fetchUserName() {
-            setUserName(await getCurrUserName());
-        }
-
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
-            fetchUserName();
-        });
-        return () => unsubscribe();
-    }, []);
+    useEffect(() => onAuthChange(setUser), []);
 
     const handleLogout = async () => {
         try {
-            await signOut(auth);
+            await signOut();
         } catch (err) {
             toast.error("Logout failed: " + (err as Error).message);
         }
     };
 
     return (
-        <header className="w-full border-lightgreen border-2 rounded-2xl px-4 py-2 max-w-7xl m-2">
+        <header className="w-full border-lightgreen border-2 rounded-2xl px-4 py-2 max-w-7xl my-2">
             <div className="flex items-center justify-between">
                 <div className="flex items-center w-full">
                     <Link
@@ -55,7 +42,7 @@ export function Navbar() {
                         TEMANJIWA
                     </Link>
 
-                    <nav className="w-full flex flex-row justify-evenly px-2 pr-4">
+                    <nav className="hidden md:flex w-full flex-row justify-evenly px-2 pr-4">
                         {navItems.map((item) => (
                             <Link
                                 key={item.name}
@@ -67,7 +54,9 @@ export function Navbar() {
                     </nav>
                 </div>
 
-                <HyperText key={userName} className="text-xs w-30">{`Welcome, ${
+                <HyperText
+                    key={userName}
+                    className="hidden md:block text-xs shrink-0 max-w-44 truncate mr-4">{`Welcome, ${
                     userName.split(" ")[0]
                 }`}</HyperText>
                 <div className="hidden md:block">

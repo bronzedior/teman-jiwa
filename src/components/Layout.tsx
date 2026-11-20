@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
 import { Navbar } from "./Navbar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -8,13 +9,15 @@ export default function Layout() {
         <ScrollArea className="h-screen w-full overflow-auto overflow-x-hidden">
             <Toaster richColors />
             <div className="w-full border-b">
-                <div className="max-w-7xl mx-auto">
+                <div className="max-w-7xl mx-auto px-2">
                     <Navbar />
                 </div>
             </div>
 
             <main className="w-full">
-                <Outlet />
+                <Suspense>
+                    <Outlet />
+                </Suspense>
             </main>
         </ScrollArea>
     );

@@ -31,7 +31,7 @@ export default function HomePage() {
                                 SDG 3: Good Health and Well-Being
                             </h1>
                             <p className="text-center text-darkgreen mt-2 text-lg md:text-xl">
-                                Ensureinghealthy lives and promoting well-being
+                                Ensuring healthy lives and promoting well-being
                                 for all.
                             </p>
                         </div>
@@ -66,7 +66,7 @@ export default function HomePage() {
                             Join TemanJiwa and take the first step towards
                             better mental health and well-being.
                         </p>
-                        <Link to={role === "guest" ? "/login" : "/modules"}>
+                        <Link to={role === "guest" ? "/login" : "/appointments"}>
                             <Button className="bg-lightgreen text-darkgreen font-bold py-3 px-10 rounded-full text-lg shadow-lg hover:brightness-110 transition-all duration-300">
                                 Get Started
                             </Button>

@@ -1,9 +1,8 @@
 import { type ReactNode, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { onAuthStateChanged, type User } from "firebase/auth";
-import { auth } from "../lib/firebase";
 import { toast } from "sonner";
-import { getCurrUserRole } from "@/handlers/auth";
+import { onAuthChange } from "@/handlers/auth";
+import type { User } from "@/types/user";
 
 type AccessLevel = "public" | "guest" | "auth" | "user" | "admin" | "expert";
 
@@ -22,13 +21,11 @@ export default function RouteMiddleware({
     const hasRedirected = useRef(false);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-            setUser(firebaseUser);
+        return onAuthChange((currentUser) => {
+            setUser(currentUser);
             setAuthChecked(true);
             hasRedirected.current = false;
         });
-
-        return () => unsubscribe();
     }, []);
 
     useEffect(() => {
@@ -58,7 +55,7 @@ export default function RouteMiddleware({
             if (
                 user &&
                 ["user", "admin", "expert"].includes(access) &&
-                (await getCurrUserRole()) !== access
+                user.role !== access
             ) {
                 toast.warning("You are not authorized to access this page.");
                 hasRedirected.current = true;
