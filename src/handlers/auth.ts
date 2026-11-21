@@ -25,10 +25,6 @@ export async function getCurrUserId(): Promise<string> {
     return getCurrUser()?.id ?? "";
 }
 
-export async function getCurrUserName(): Promise<string> {
-    return getCurrUser()?.full_name || "Guest";
-}
-
 export async function getCurrUserRole(): Promise<Role | "guest"> {
     return getCurrUser()?.role ?? "guest";
 }

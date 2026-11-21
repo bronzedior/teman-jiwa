@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { toast, Toaster } from "sonner";
 import { z } from "zod";
 import { useForm } from "react-hook-form";

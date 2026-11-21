@@ -11,5 +11,17 @@ export default defineConfig({
             "@": path.resolve(__dirname, "./src"),
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                // Split the heavy shell dependencies so no chunk exceeds 500 kB and each caches independently.
+                manualChunks: {
+                    react: ["react", "react-dom", "react-dom/client"],
+                    router: ["react-router"],
+                    motion: ["motion"],
+                },
+            },
+        },
+    },
 });
 
