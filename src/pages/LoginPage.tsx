@@ -3,7 +3,7 @@
 import type React from "react";
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { toast, Toaster } from "sonner";
 import { signIn } from "../handlers/auth";
 import { Button } from "@/components/ui/button";

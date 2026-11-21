@@ -42,20 +42,12 @@ export function subscribeToForumPosts(
     return store.subscribe(() => callback(sortedPosts().slice(0, limitCount)));
 }
 
-export async function getForumPost(postId: string): Promise<Forum | null> {
-    return store.get<Forum>("forums", postId);
-}
-
 export function subscribeToForumPost(
     postId: string,
     callback: (post: Forum | null) => void
 ) {
     callback(store.get<Forum>("forums", postId));
     return store.subscribe(() => callback(store.get<Forum>("forums", postId)));
-}
-
-export async function updateForumPost(postId: string, data: Partial<Forum>) {
-    store.update<Forum>("forums", postId, data);
 }
 
 export async function deleteForumPost(postId: string) {
@@ -116,10 +108,6 @@ export async function deleteComment(postId: string, commentId: string) {
     store.update<Forum>("forums", postId, {
         comments: removeComment(post.comments, commentId),
     });
-}
-
-export async function getUserData(userId: string) {
-    return store.get<User>("users", userId);
 }
 
 export async function getUsersData(userIds: string[]) {

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { onAuthChange } from "@/handlers/auth";
 import type { User } from "@/types/user";
